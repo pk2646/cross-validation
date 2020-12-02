@@ -110,19 +110,19 @@ model) - use the testing dataset
 rmse(linear_model, data = test_df)
 ```
 
-    ## [1] 0.8319449
+    ## [1] 0.8914165
 
 ``` r
 rmse(smooth_mod, data = test_df)
 ```
 
-    ## [1] 0.3353538
+    ## [1] 0.2774172
 
 ``` r
 rmse(wiggly_mod, data = test_df)
 ```
 
-    ## [1] 0.3234575
+    ## [1] 0.2940714
 
 This is what cross validation does - picks the smooth model to pick the
 best model to make a prediction.
@@ -143,18 +143,18 @@ cv_df %>%  pull(train) %>% .[[1]] %>% as_tibble()
 ```
 
     ## # A tibble: 79 x 3
-    ##       id      x      y
-    ##    <int>  <dbl>  <dbl>
-    ##  1     1 0.995  -3.85 
-    ##  2     3 0.711  -0.629
-    ##  3     4 0.409   1.21 
-    ##  4     6 0.973  -3.83 
-    ##  5     7 0.770  -1.13 
-    ##  6     8 0.553   0.511
-    ##  7     9 0.694  -0.973
-    ##  8    11 0.731  -0.927
-    ##  9    12 0.0958  0.389
-    ## 10    13 0.127   0.771
+    ##       id      x       y
+    ##    <int>  <dbl>   <dbl>
+    ##  1     1 0.0927  0.0866
+    ##  2     2 0.675  -0.109 
+    ##  3     4 0.513   0.288 
+    ##  4     5 0.119   0.850 
+    ##  5     6 0.981  -3.65  
+    ##  6     7 0.985  -3.90  
+    ##  7     8 0.655   0.129 
+    ##  8     9 0.722  -0.304 
+    ##  9    10 0.406   0.930 
+    ## 10    12 0.873  -2.09  
     ## # … with 69 more rows
 
 ``` r
@@ -162,18 +162,18 @@ cv_df %>%  pull(test) %>% .[[1]] %>% as_tibble()
 ```
 
     ## # A tibble: 21 x 3
-    ##       id      x      y
-    ##    <int>  <dbl>  <dbl>
-    ##  1     2 0.887  -2.45 
-    ##  2     5 0.135   1.25 
-    ##  3    10 0.0756  0.619
-    ##  4    18 0.555  -0.605
-    ##  5    24 0.149   0.583
-    ##  6    25 0.209   1.10 
-    ##  7    29 0.0438  0.489
-    ##  8    31 1.00   -3.98 
-    ##  9    32 0.104   0.291
-    ## 10    33 0.220   0.729
+    ##       id      x       y
+    ##    <int>  <dbl>   <dbl>
+    ##  1     3 0.407   0.565 
+    ##  2    11 0.582   0.556 
+    ##  3    13 0.0796  0.652 
+    ##  4    15 0.0352  0.320 
+    ##  5    23 0.195   0.697 
+    ##  6    28 0.818  -1.75  
+    ##  7    36 0.648  -0.221 
+    ##  8    42 0.567  -0.0214
+    ##  9    44 0.922  -2.89  
+    ## 10    46 0.736  -0.992 
     ## # … with 11 more rows
 
 ``` r
@@ -244,8 +244,106 @@ cv_df %>%
     ## # A tibble: 3 x 2
     ##   model  avg_rmse
     ##   <chr>     <dbl>
-    ## 1 linear    0.825
-    ## 2 smooth    0.280
-    ## 3 wiggly    0.331
+    ## 1 linear    0.869
+    ## 2 smooth    0.284
+    ## 3 wiggly    0.335
 
 smooth is the lowest, hence does better than the other two \!
+
+Try on a real dataset
+
+import data
+
+``` r
+child_growth_df = 
+  read_csv("./data/nepalese_children.csv") %>% 
+  mutate(
+    weight_cp = (weight > 7) * (weight - 7)
+  )
+```
+
+    ## Parsed with column specification:
+    ## cols(
+    ##   age = col_double(),
+    ##   sex = col_double(),
+    ##   weight = col_double(),
+    ##   height = col_double(),
+    ##   armc = col_double()
+    ## )
+
+weight vs arm circumference
+
+``` r
+child_growth_df %>% 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = .3)
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-14-1.png" width="90%" />
+
+Fit the models we care about
+
+``` r
+linear_model = lm(armc ~ weight, data = child_growth_df)
+pwlin_mod = lm(armc ~ weight + weight_cp, data = child_growth_df)
+smooth_mod = gam(armc ~ s(weight), data = child_growth_df)
+```
+
+``` r
+child_growth_df %>% 
+  gather_predictions(linear_model, pwlin_mod, smooth_mod) %>% 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = .3) + 
+  geom_line(aes(y = pred), color = "red") +
+  facet_grid(. ~ model)
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-16-1.png" width="90%" />
+
+Which of these id the right model to use for this association? We answer
+with performing a cross validation procedure
+
+Try to understand model fit using cross validation dataframe
+
+``` r
+cv_df = 
+  crossv_mc(child_growth_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+```
+
+See if I can fit the models to the splits
+
+``` r
+cv_df = 
+cv_df %>% 
+  mutate(
+    linear_model =  map(.x = train, ~lm(armc ~ weight, data = .x)),
+    pwlin_mod = map(.x = train, ~lm(armc ~ weight + weight_cp, data = .x )),
+    smooth_mod = map(.x = train, ~ gam(armc ~ s(weight), data = .x))
+  ) %>% 
+  mutate(
+    rmse_linear = map2_dbl(.x  = linear_model, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_pwlin = map2_dbl(.x = pwlin_mod, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_smooth = map2_dbl(.x  = smooth_mod, .y = test, ~rmse(model = .x, data = .y)),
+  )
+```
+
+Violin plot
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin()
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-19-1.png" width="90%" />
